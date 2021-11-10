@@ -116,6 +116,7 @@ class TrOcrObjective(OcrObjective):
     image = draw(text)
     pixel_values = self.processor(images=image, return_tensors="pt").pixel_values.to(self.device)
     generated_ids = self.model.generate(pixel_values)
+    del pixel_values # remove from GPU
     return self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
 
@@ -160,9 +161,9 @@ if __name__ == '__main__':
   model.add_argument('-t', '--trocr', action='store_true', help="Target Microsoft TrOCR model.")
   parser.add_argument('-c', '--cpu', action='store_true', help="Use CPU for ML inference instead of CUDA.")
   parser.add_argument('pkl_file', help="File to contain Python pickled output.")
-  parser.add_argument('-e', '--end-index', type=int, default=500, help="The upper bound of the items in the dataset to use in experiments.")
   parser.add_argument('-s', '--start-index', type=int, default=0, help="The lower bound of the items in the dataset to use in experiments.")
-  parser.add_argument('-l', '--min-budget', type=int, default=1, help="The lower bound (inclusive) of the perturbation budget range.")
+  parser.add_argument('-e', '--end-index', type=int, default=500, help="The upper bound of the items in the dataset to use in experiments.")
+  parser.add_argument('-l', '--min-budget', type=int, default=0, help="The lower bound (inclusive) of the perturbation budget range.")
   parser.add_argument('-u', '--max-budget', type=int, default=5, help="The upper bound (inclusive) of the perturbation budget range.")
   parser.add_argument('-a', '--maxiter', type=int, default=10, help="The maximum number of iterations in the genetic algorithm.")
   parser.add_argument('-p', '--popsize', type=int, default=32, help="The size of the population in the genetic algorithm.")
