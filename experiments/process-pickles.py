@@ -29,5 +29,5 @@ with open(picklefile, 'wb') as f:
 
 jsonfile = f'../results/{outfilename}.json'
 print(f"Exporting JSON as {jsonfile}.")
-with open(jsonfile, 'wb') as f:
+with open(jsonfile, 'w') as f:
     json.dump(output, f)
