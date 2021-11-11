@@ -11,11 +11,15 @@ for filename in glob("*.pkl"):
     print(f"Processing {filename}...")
 
     with open(filename, 'rb') as f:
-        for key, value in pickle.load(f).items():
-            if key in output:
-                output[key].update(value)
+        for exp_name, exp in pickle.load(f).items():
+            if exp_name in output:
+                for budget, adv_examples in exp.items():
+                    if budget in output[exp_name]:
+                        output[exp_name][budget].update(adv_examples)
+                    else:
+                        output[exp_name][budget] = adv_examples
             else:
-                output[key] = value
+                output[exp_name] = exp
 
 if len(argv) == 2:
     outfilename = argv[1]
