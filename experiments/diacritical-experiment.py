@@ -168,7 +168,7 @@ class ToxicOcrObjective(TrOcrObjective):
 
   def differential_evolution(self, maxiter: int, popsize: int) -> Dict:
     adv_example = super().differential_evolution(maxiter, popsize)
-    adv_logit_toxic = self.toxic_model.predict([adv_example['adv_example']])[0]['toxic']
+    adv_logit_toxic = float(self.toxic_model.predict([adv_example['adv_example']])[0]['toxic'])
     adv_label_toxic = round(adv_logit_toxic) == 1
     return serialize_toxic(adv_label_toxic, self.gold_label_toxic, adv_logit_toxic, **adv_example)
 

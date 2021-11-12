@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 import pickle
 import json
+import numpy as np
 from glob import glob
 from sys import argv
 from datetime import datetime
+
+def denumpify(target):
+  for key, value in list(target.items()):
+    if isinstance(value, dict):
+      denumpify(value)
+    elif isinstance(value, np.ndarray):
+      target[key] = value.tolist()
+    elif isinstance(value, np.float32) or isinstance(value, np.bool_):
+      target[key] = value.item()
 
 output = {}
 
@@ -25,6 +35,9 @@ if len(argv) == 2:
     outfilename = argv[1]
 else:
     outfilename = f"results-{datetime.now().strftime('%m-%d-%Y-%H:%M:%S')}"
+
+# Remove numpy-specific formats
+denumpify(output)
 
 picklefile = f'../results/{outfilename}.pkl'
 print(f"Exporting Pickle as {picklefile}.")
