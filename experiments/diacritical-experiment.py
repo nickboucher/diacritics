@@ -16,7 +16,7 @@ from tqdm.auto import tqdm
 from toxic.core.model import ModelWrapper
 from logging import getLogger, WARNING
 from fairseq.hub_utils import GeneratorHubInterface
-from sacrebleu import corpus_bleu
+from sacrebleu import sentence_chrf
 from bs4 import BeautifulSoup
 
 # Diacritical marks supported by Arial Unicode MS
@@ -236,7 +236,7 @@ class TranslationOcrObjective(TrOcrObjective):
         output = self.cache[candidate]
       else:
         translation = self.translation_model.translate(self.ocr(candidate))
-        output = corpus_bleu(translation, self.gold_translation).score
+        output = sentence_chrf(translation, [self.gold_translation]).score
         self.cache[candidate] = output
       return output
     return _objective
@@ -244,7 +244,7 @@ class TranslationOcrObjective(TrOcrObjective):
   def differential_evolution(self, maxiter: int, popsize: int) -> Dict:
     adv_example = super().differential_evolution(maxiter, popsize)
     adv_translation = self.translation_model.translate(self.ocr(adv_example['adv_example']))
-    adv_bleu = corpus_bleu(adv_translation, self.gold_translation).score
+    adv_bleu = sentence_chrf(adv_translation, [self.gold_translation]).score
     return serialize_translation(adv_translation, self.gold_translation, adv_bleu, **adv_example)
 
 
