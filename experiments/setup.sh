@@ -1,4 +1,4 @@
-pip install transformers datasets textdistance[extras] scipy tqdm torch Pillow pandas
+pip install transformers datasets textdistance[extras] scipy tqdm torch Pillow pandas fastBPE subword_nmt beautifulsoup4 fairseq
 curl -s https://raw.githubusercontent.com/kaienfr/Font/master/font/ARIALUNI.TTF --output arialuni.ttf
 rm -rf assets/
 rm -rf toxic/
@@ -15,3 +15,7 @@ sed -i 's/from config/from ..config/g' toxic/core/model.py
 sed -i 's/from core\./from ./g' toxic/core/model.py
 wget https://ndownloader.figshare.com/files/7394542 -O toxicity_annotated_comments.tsv
 wget https://ndownloader.figshare.com/files/7394539 -O toxicity_annotations.tsv
+wget -c http://statmt.org/wmt14/test-full.tgz -O - | tar -xz
+mv test-full/newstest2014-fren-src.en.sgm .
+mv test-full/newstest2014-fren-ref.fr.sgm .
+rm -rf test-full/

@@ -4,7 +4,7 @@ import pandas as pd
 from abc import ABC
 from typing import Callable, List, Dict, Tuple
 from textdistance import levenshtein
-from torch import cuda, device as torchdevice
+from torch import cuda, hub, device as torchdevice
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from datasets import load_dataset
 from PIL import Image, ImageDraw, ImageFont
@@ -15,6 +15,9 @@ from os.path import exists
 from tqdm.auto import tqdm
 from toxic.core.model import ModelWrapper
 from logging import getLogger, WARNING
+from fairseq.hub_utils import GeneratorHubInterface
+from sacrebleu import corpus_bleu
+from bs4 import BeautifulSoup
 
 # Diacritical marks supported by Arial Unicode MS
 # Full range is 768 - 879
@@ -55,11 +58,49 @@ def load_toxic_data(start_index: int, end_index: int):
     examples = test_comments.reset_index().to_dict('records')
     return examples[start_index:end_index]
 
+def load_translation_data(start_index: int, end_index: int):
+  # Build source and target mappings for BLEU scoring
+  source = dict()
+  target = dict()
+  with open('newstest2014-fren-src.en.sgm', 'r') as f:
+    source_doc = BeautifulSoup(f, 'html.parser')
+  with open('newstest2014-fren-ref.fr.sgm', 'r') as f:
+    target_doc = BeautifulSoup(f, 'html.parser')
+  for doc in source_doc.find_all('doc'):
+    source[str(doc['docid'])] = dict()
+    for seg in doc.find_all('seg'):
+      source[str(doc['docid'])][str(seg['id'])] = str(seg.string)
+  for docid, doc in source.items():
+    target[docid] = dict()
+    for segid in doc:
+      node = target_doc.select_one(f'doc[docid="{docid}"] > seg[id="{segid}"]')
+      target[docid][segid] = str(node.string)
+  # Sort the examples in order of length to improve runtime
+  source_list = []
+  target_list = []
+  for docid, doc in source.items():
+    for segid, seg in doc.items():
+      source_list.append({ docid: { segid: seg }})
+  source_list.sort(key=lambda x: len(str(list(list(x.values())[0].values())[0])))
+  source_list = source_list[start_index:end_index]
+  output = []
+  for example in source_list:
+    for docid, doc in example.items():
+      for segid, seg in doc.items():
+        output.append({
+            'docid': docid,
+            'segid': segid,
+            'english': seg,
+            'french': target[docid][segid]
+          })
+  return output
+
 def serialize_trocr(adv_example: str, adv_example_ocr: str, input: str, input_ocr: str, adv_generation_time: int, budget: int, maxiter: int, popsize: int, **kwargs):
   return  {
     'adv_example': adv_example,
     'adv_example_ocr': adv_example_ocr,
     'adv_example_ocr_input_distance': distance(adv_example_ocr, input),
+    'adv_example_ocr_adv_distance': distance(adv_example_ocr, adv_example),
     'input': input,
     'input_ocr': input_ocr,
     'input_ocr_input_distance': distance(input_ocr, input),
@@ -78,6 +119,14 @@ def serialize_toxic(adv_label_toxic: bool, gold_label_toxic: bool, adv_logit_tox
     **base
   }
 
+def serialize_translation(adv_translation: str, gold_translation: str, adv_bleu: float, **kwargs):
+  base = serialize_trocr(**kwargs)
+  return {
+    'adv_translation': adv_translation,
+    'gold_translation': gold_translation,
+    'adv_bleu': adv_bleu,
+    **base
+  }
 
 class OcrObjective(ABC):
   """ Objective targeting OCR models using Unicode diacriticals. """
@@ -168,9 +217,35 @@ class ToxicOcrObjective(TrOcrObjective):
 
   def differential_evolution(self, maxiter: int, popsize: int) -> Dict:
     adv_example = super().differential_evolution(maxiter, popsize)
-    adv_logit_toxic = float(self.toxic_model.predict([adv_example['adv_example']])[0]['toxic'])
+    adv_logit_toxic = float(self.toxic_model.predict([self.ocr(adv_example['adv_example'])])[0]['toxic'])
     adv_label_toxic = round(adv_logit_toxic) == 1
     return serialize_toxic(adv_label_toxic, self.gold_label_toxic, adv_logit_toxic, **adv_example)
+
+class TranslationOcrObjective(TrOcrObjective):
+
+  def __init__(self, input: str, budget: int, processor: TrOCRProcessor, model: VisionEncoderDecoderModel, device: str, translation_model: GeneratorHubInterface, gold_translation: str):
+      super().__init__(input, budget, processor, model, device)
+      self.translation_model = translation_model
+      self.gold_translation = gold_translation
+
+  def objective(self) -> Callable[[List[float]], float]:
+    ''' Tries to minimize BLEU score. '''
+    def _objective(perturbations: List[float]) -> float:
+      candidate = self.candidate(perturbations)
+      if candidate in self.cache:
+        output = self.cache[candidate]
+      else:
+        translation = self.translation_model.translate(self.ocr(candidate))
+        output = corpus_bleu(translation, self.gold_translation).score
+        self.cache[candidate] = output
+      return output
+    return _objective
+
+  def differential_evolution(self, maxiter: int, popsize: int) -> Dict:
+    adv_example = super().differential_evolution(maxiter, popsize)
+    adv_translation = self.translation_model.translate(self.ocr(adv_example['adv_example']))
+    adv_bleu = corpus_bleu(adv_translation, self.gold_translation).score
+    return serialize_translation(adv_translation, self.gold_translation, adv_bleu, **adv_example)
 
 
 def create_or_load_pickle(pkl_file: str, label: str, overwrite: bool) -> Dict:
@@ -243,12 +318,48 @@ def toxic_experiment(start_index: int, end_index: int, min_budget: int, max_budg
             pickle.dump(adv_examples, f)
         pbar.update(1)
 
+def translation_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, **kwargs):
+  # Load resources
+  label = "translation-diacriticals"
+  dataset = load_translation_data(start_index, end_index)
+  print(f"Performing experiments against the Fairseq WMT14 EN->FR translation model for {len(dataset)} examples, from index {start_index} to {end_index}, with budgets {min_budget} to {max_budget}.")
+  device, processor, model = load_trocr(cpu)
+  getLogger('fairseq').setLevel(WARNING)
+  en2fr = hub.load('pytorch/fairseq',
+                   'transformer.wmt14.en-fr',
+                   tokenizer='moses',
+                   bpe='subword_nmt',
+                   verbose=False).eval()
+  if not cpu and cuda.is_available():
+    en2fr.cuda()
+    device = "cuda"
+  else:
+    en2fr.cpu()
+    device = "cpu"
+  print(f"Fairseq WMT14 EN->FR translation model configured to use device {device}.")
+  budgets = range(min_budget, max_budget+1)
+  adv_examples = create_or_load_pickle(pkl_file, label, overwrite)
+  # Run experiments
+  with tqdm(total=len(dataset)*len(budgets), desc="Adv. Examples") as pbar:
+    for budget in budgets:
+      if budget not in adv_examples[label]:
+        adv_examples[label][budget] = {}
+      for data in dataset:
+        id = f"{data['docid']}-{data['segid']}"
+        if id not in adv_examples[label][budget]:
+          objective = TranslationOcrObjective(data['english'], budget, processor, model, device, en2fr, data['french'])
+          adv_examples[label][budget][id] = objective.differential_evolution(maxiter, popsize)
+          with open(pkl_file, 'wb') as f:
+            pickle.dump(adv_examples, f)
+        pbar.update(1)
+
 if __name__ == '__main__':
 
   parser = ArgumentParser(description='Adversarial NLP Experiments.')
   model = parser.add_mutually_exclusive_group(required=True)
   model.add_argument('-t', '--trocr', action='store_true', help="Target Microsoft TrOCR model.")
   model.add_argument('-x', '--toxic', action='store_true', help="Target IBM's MaxToxic model defended by TrOCR.")
+  model.add_argument('-r', '--translation', action='store_true', help="Target Facebook Fairseq's WMT 14 EN->FR translation model defended by TrOCR.")
   parser.add_argument('-c', '--cpu', action='store_true', help="Use CPU for ML inference instead of CUDA.")
   parser.add_argument('pkl_file', help="File to contain Python pickled output.")
   parser.add_argument('-s', '--start-index', type=int, default=0, help="The lower bound of the items in the dataset to use in experiments.")
@@ -269,3 +380,6 @@ if __name__ == '__main__':
 
   elif args.toxic:
     toxic_experiment(**vars(args))
+
+  elif args.translation:
+    translation_experiment(**vars(args))
