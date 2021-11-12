@@ -8,8 +8,6 @@ from torch import cuda
 from PIL import Image, ImageDraw, ImageFont
 
 toxic_model = ModelWrapper()
-if cuda.is_available():
-    toxic_model.model.cuda()
 device = 'cuda:0' if cuda.is_available() else 'cpu'
 processor = TrOCRProcessor.from_pretrained('microsoft/trocr-base-handwritten')
 model = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-base-handwritten').to(device)
