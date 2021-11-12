@@ -237,7 +237,7 @@ def toxic_experiment(start_index: int, end_index: int, min_budget: int, max_budg
         adv_examples[label][budget] = {}
       for data in dataset:
         if str(data['rev_id']) not in adv_examples[label][budget]:
-          objective = ToxicOcrObjective(data['comment'], budget, processor, model, device)
+          objective = ToxicOcrObjective(data['comment'], budget, processor, model, device, toxic_model, data['toxicity'])
           adv_examples[label][budget][str(data['rev_id'])] = objective.differential_evolution(maxiter, popsize)
           with open(pkl_file, 'wb') as f:
             pickle.dump(adv_examples, f)
