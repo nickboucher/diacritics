@@ -39,13 +39,14 @@ for filename in glob(argv[1]):
 
     with open(filename, 'rb') as f:
         output = pickle.load(f)
-        for exp_name, exp in output.items():
-            for id, adv_example in exp.items():
-                adv_example['adv_example_ocr_adv_distance'] = levenshtein.distance(adv_example['adv_example_ocr'], adv_example['adv_example'])
-            if exp_name == "toxic-diacriticals":
+        for exp_name, budgets in output.items():
+            for budget, exp in budgets.items():
                 for id, adv_example in exp.items():
-                        adv_example['adv_logit_toxic'] = float(toxic_model.predict([ocr(adv_example['adv_example'])])[0]['toxic'])
-                        adv_example['adv_label_toxic'] = round(adv_example['adv_logit_toxic']) == 1
+                    adv_example['adv_example_ocr_adv_distance'] = levenshtein.distance(adv_example['adv_example_ocr'], adv_example['adv_example'])
+                if exp_name == "toxic-diacriticals":
+                    for id, adv_example in exp.items():
+                            adv_example['adv_logit_toxic'] = float(toxic_model.predict([ocr(adv_example['adv_example'])])[0]['toxic'])
+                            adv_example['adv_label_toxic'] = round(adv_example['adv_logit_toxic']) == 1
 
     with open(filename, 'wb') as f:
         pickle.dump(output, f)
