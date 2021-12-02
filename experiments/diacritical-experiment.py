@@ -183,23 +183,43 @@ class OcrObjective(ABC):
 
 class TrOcrObjective(OcrObjective):
 
-  def __init__(self, input: str, budget: int, processor: TrOCRProcessor, model: VisionEncoderDecoderModel, device: str):
+  def __init__(self, input: str, budget: int, processor: TrOCRProcessor, model: VisionEncoderDecoderModel, device: str, ocr_line_len: int):
     super().__init__(input, budget)
     self.processor = processor
     self.model = model
     self.device = device
+    self.ocr_line_len = ocr_line_len
 
-  def ocr(self, text: str) -> str:
+  def trocr(self, text: str) -> str:
     image = draw(text)
     pixel_values = self.processor(images=image, return_tensors="pt").pixel_values.to(self.device)
     generated_ids = self.model.generate(pixel_values)
     del pixel_values # remove from GPU
     return self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
+  def ocr(self, text: str) -> str:
+    tokens = text.split()
+    buffer = ''
+    output = ''
+    for token in tokens:
+      if buffer == '':
+        buffer = token
+      elif len(buffer) + len(token) < self.ocr_line_len:
+        buffer += ' ' + token
+      else:
+        output += self.trocr(buffer) + ' '
+        buffer = token
+    if buffer != '':
+      output += self.trocr(buffer)
+    elif output != '':
+      output = output[:-1] # Remove trailing whitespace
+    return output
+
+
 class ToxicOcrObjective(TrOcrObjective):
 
-  def __init__(self, input: str, budget: int, processor: TrOCRProcessor, model: VisionEncoderDecoderModel, device: str, toxic_model: ModelWrapper, gold_label_toxic: bool):
-      super().__init__(input, budget, processor, model, device)
+  def __init__(self, input: str, budget: int, processor: TrOCRProcessor, model: VisionEncoderDecoderModel, device: str, toxic_model: ModelWrapper, gold_label_toxic: bool, ocr_line_len: int):
+      super().__init__(input, budget, processor, model, device, ocr_line_len)
       self.toxic_model = toxic_model
       self.gold_label_toxic = gold_label_toxic
 
@@ -223,8 +243,8 @@ class ToxicOcrObjective(TrOcrObjective):
 
 class TranslationOcrObjective(TrOcrObjective):
 
-  def __init__(self, input: str, budget: int, processor: TrOCRProcessor, model: VisionEncoderDecoderModel, device: str, translation_model: GeneratorHubInterface, gold_translation: str):
-      super().__init__(input, budget, processor, model, device)
+  def __init__(self, input: str, budget: int, processor: TrOCRProcessor, model: VisionEncoderDecoderModel, device: str, translation_model: GeneratorHubInterface, gold_translation: str, ocr_line_len: int):
+      super().__init__(input, budget, processor, model, device, ocr_line_len)
       self.translation_model = translation_model
       self.gold_translation = gold_translation
 
@@ -267,7 +287,7 @@ def load_trocr(cpu: bool):
   print(f"TrOCR configured to use device {device}.")
   return device, processor, model
 
-def trocr_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, **kwargs):
+def trocr_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, ocr_line_len: int, **kwargs):
   # Load resources
   label = "trocr-diacriticals"
   dataset = load_glue_data(start_index, end_index)
@@ -282,13 +302,13 @@ def trocr_experiment(start_index: int, end_index: int, min_budget: int, max_budg
         adv_examples[label][budget] = {}
       for data in dataset:
         if data['idx'] not in adv_examples[label][budget]:
-          objective = TrOcrObjective(data['sentence'], budget, processor, model, device)
+          objective = TrOcrObjective(data['sentence'], budget, processor, model, device, ocr_line_len)
           adv_examples[label][budget][data['idx']] = objective.differential_evolution(maxiter, popsize)
           with open(pkl_file, 'wb') as f:
             pickle.dump(adv_examples, f)
         pbar.update(1)
 
-def toxic_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, **kwargs):
+def toxic_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, ocr_line_len: int, **kwargs):
   # Load resources
   label = "toxic-diacriticals"
   dataset = load_toxic_data(start_index, end_index)
@@ -312,13 +332,13 @@ def toxic_experiment(start_index: int, end_index: int, min_budget: int, max_budg
         adv_examples[label][budget] = {}
       for data in dataset:
         if str(data['rev_id']) not in adv_examples[label][budget]:
-          objective = ToxicOcrObjective(data['comment'], budget, processor, model, device, toxic_model, data['toxicity'])
+          objective = ToxicOcrObjective(data['comment'], budget, processor, model, device, toxic_model, data['toxicity'], ocr_line_len)
           adv_examples[label][budget][str(data['rev_id'])] = objective.differential_evolution(maxiter, popsize)
           with open(pkl_file, 'wb') as f:
             pickle.dump(adv_examples, f)
         pbar.update(1)
 
-def translation_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, **kwargs):
+def translation_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, ocr_line_len: int, **kwargs):
   # Load resources
   label = "translation-diacriticals"
   dataset = load_translation_data(start_index, end_index)
@@ -347,7 +367,7 @@ def translation_experiment(start_index: int, end_index: int, min_budget: int, ma
       for data in dataset:
         id = f"{data['docid']}-{data['segid']}"
         if id not in adv_examples[label][budget]:
-          objective = TranslationOcrObjective(data['english'], budget, processor, model, device, en2fr, data['french'])
+          objective = TranslationOcrObjective(data['english'], budget, processor, model, device, en2fr, data['french'], ocr_line_len)
           adv_examples[label][budget][id] = objective.differential_evolution(maxiter, popsize)
           with open(pkl_file, 'wb') as f:
             pickle.dump(adv_examples, f)
@@ -371,6 +391,7 @@ if __name__ == '__main__':
   parser.add_argument('-o', '--overwrite', action='store_true', help="Overwrite existing results file instead of resuming.")
   parser.add_argument('-f', '--font', default="arialuni.ttf", help="TTF font file to use for image rendering.")
   parser.add_argument('-F', '--font-size', type=int, default=32, help="Font size for image rendering.")
+  parser.add_argument('-n', '--ocr-line-len', type=int, default=64, help="Max characters for words rendered to OCR image.")
   args = parser.parse_args()
 
   load_font(args.font, args.font_size)
