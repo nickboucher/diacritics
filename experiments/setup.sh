@@ -1,4 +1,4 @@
-pip install transformers datasets textdistance[extras] scipy tqdm torch Pillow pandas fastBPE subword_nmt beautifulsoup4 fairseq
+pip install transformers datasets textdistance[extras] scipy tqdm torch Pillow pandas fastBPE subword_nmt beautifulsoup4
 curl -s https://raw.githubusercontent.com/kaienfr/Font/master/font/ARIALUNI.TTF --output arialuni.ttf
 rm -rf assets/
 rm -rf toxic/
@@ -19,3 +19,10 @@ wget -c http://statmt.org/wmt14/test-full.tgz -O - | tar -xz
 mv test-full/newstest2014-fren-src.en.sgm .
 mv test-full/newstest2014-fren-ref.fr.sgm .
 rm -rf test-full/
+git clone https://github.com/esalesky/visrep
+pip install --editable ./visrep
+pip install -r ./visrep/examples/visual_text/requirements.txt
+wget -c http://data.statmt.org/wmt20/translation-task/test.tgz -O - | tar -xz
+mv sgm/newstest2020-deen-ref.en.sgm .
+mv sgm/newstest2020-deen-src.de.sgm .
+rm -rf sgm/
