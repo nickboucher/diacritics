@@ -115,7 +115,7 @@ def load_de_translation_data(start_index: int, end_index: int):
   for docid, doc in source.items():
     target[docid] = dict()
     for segid in doc:
-      node = target_doc.select_one(f'doc[docid="{docid}"] > seg[id="{segid}"]')
+      node = target_doc.select_one(f'doc[docid="{docid}"] > p > seg[id="{segid}"]')
       target[docid][segid] = str(node.string)
   # Sort the examples in order of length to improve runtime
   source_list = []
