@@ -601,10 +601,10 @@ def visrep_experiment(start_index: int, end_index: int, min_budget: int, max_bud
   # Load resources
   label = "visrep-diacriticals"
   dataset = load_de_translation_data(start_index, end_index)
-  print(f"Performing experiments against the Visual Text Translation FR->EN model for {len(dataset)} examples, from index {start_index} to {end_index}, with budgets {min_budget} to {max_budget}.")
+  print(f"Performing experiments against the Visual Text Translation DE->EN model for {len(dataset)} examples, from index {start_index} to {end_index}, with budgets {min_budget} to {max_budget}.")
   device, processor, model = load_trocr(cpu)
   translate = load_visrep(checkpoint, tgt_dict, font, cpu)
-  print(f"Visual Text Translation model FR->EN configured to use device {device}.")
+  print(f"Visual Text Translation model DE->EN configured to use device {device}.")
   budgets = range(min_budget, max_budget+1)
   adv_examples = create_or_load_pickle(pkl_file, label, overwrite)
   # Run experiments
@@ -628,7 +628,7 @@ if __name__ == '__main__':
   model.add_argument('-t', '--trocr', action='store_true', help="Target Microsoft TrOCR model.")
   model.add_argument('-x', '--toxic', action='store_true', help="Target IBM's MaxToxic model defended by TrOCR.")
   model.add_argument('-r', '--translation', action='store_true', help="Target Facebook Fairseq's WMT 14 EN->FR translation model defended by TrOCR.")
-  model.add_argument('-v', '--visrep', action='store_true', help="Target Visual Text Translation FR->EN model.")
+  model.add_argument('-v', '--visrep', action='store_true', help="Target Visual Text Translation DE->EN model.")
   parser.add_argument('-c', '--cpu', action='store_true', help="Use CPU for ML inference instead of CUDA.")
   parser.add_argument('pkl_file', help="File to contain Python pickled output.")
   parser.add_argument('-s', '--start-index', type=int, default=0, help="The lower bound of the items in the dataset to use in experiments.")
@@ -641,8 +641,8 @@ if __name__ == '__main__':
   parser.add_argument('-f', '--font', default="arialuni.ttf", help="TTF font file to use for image rendering.")
   parser.add_argument('-F', '--font-size', type=int, default=32, help="Font size for image rendering.")
   parser.add_argument('-n', '--ocr-line-len', type=int, default=64, help="Max characters for words rendered to OCR image.")
-  parser.add_argument('-k', '--checkpoint', help="Model checkpoint filepath to use for inference. Visrep only.")
-  parser.add_argument('-g', '--tgt-dict', help="Target dictionary filepath to use for inference. Visrep only.")
+  parser.add_argument('-k', '--checkpoint', default="WMT_de-en/checkpoint_best.pt", help="Model checkpoint filepath to use for inference. Visrep only.")
+  parser.add_argument('-g', '--tgt-dict', default="WMT_de-en/dict.en.txt", help="Target dictionary filepath to use for inference. Visrep only.")
   args = parser.parse_args()
 
   load_font(args.font, args.font_size)

@@ -26,3 +26,6 @@ wget -c http://data.statmt.org/wmt20/translation-task/test.tgz -O - | tar -xz
 mv sgm/newstest2020-deen-ref.en.sgm .
 mv sgm/newstest2020-deen-src.de.sgm .
 rm -rf sgm/
+wget -O WMT_de-en.zip https://zenodo.org/record/5770933/files/WMT_de-en.zip?download=1
+unzip WMT_de-en.zip
+rm -f WMT_de-en.zip
