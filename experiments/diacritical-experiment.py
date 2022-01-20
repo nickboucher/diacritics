@@ -355,7 +355,7 @@ def load_trocr(cpu: bool):
   print(f"TrOCR configured to use device {device}.")
   return device, processor, model
 
-def load_visrep(checkpoint, tgt_dict, font):
+def load_visrep(checkpoint: str, tgt_dict: str, font: str, cpu: bool) -> Callable[[str],str]:
   
   def make_batches(lines, cfg, task, max_positions, encode_fn):
     constraints_tensor = None
@@ -392,7 +392,7 @@ def load_visrep(checkpoint, tgt_dict, font):
   np.random.seed(cfg.common.seed)
   utils.set_torch_seed(cfg.common.seed)
 
-  use_cuda = torch.cuda.is_available()
+  use_cuda = not cpu and torch.cuda.is_available()
 
   # Setup task, e.g., translation
   task = tasks.setup_task(cfg.task)
