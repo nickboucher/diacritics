@@ -341,7 +341,7 @@ class VisrepOcrObjective(OcrObjective):
     adv_example = super().differential_evolution(maxiter, popsize)
     adv_translation = self.translate(adv_example['adv_example'])
     adv_bleu = sentence_chrf(adv_translation, [self.gold_translation]).score
-    return serialize_translation(adv_translation, self.gold_translation, adv_bleu, **adv_example)
+    return serialize_translation(adv_translation, self.gold_translation, adv_bleu, adv_example_ocr=None, input_ocr=None, **adv_example)
 
 
 def create_or_load_pickle(pkl_file: str, label: str, overwrite: bool) -> Dict:
