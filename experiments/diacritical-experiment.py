@@ -329,6 +329,9 @@ class VisrepOcrObjective(OcrObjective):
       return output
     return _objective
 
+  def ocr(self, text: str):
+    return None # This model doesn't use OCR
+
   def differential_evolution(self, maxiter: int, popsize: int) -> Dict:
     adv_example = super().differential_evolution(maxiter, popsize)
     adv_translation = self.translate(adv_example['adv_example'])
