@@ -309,10 +309,10 @@ class TranslationOcrObjective(TrOcrObjective):
     return serialize_translation(adv_translation, self.gold_translation, adv_bleu, **adv_example)
 
 
-class VisrepOcrObjective(TrOcrObjective):
+class VisrepOcrObjective(OcrObjective):
 
-  def __init__(self, input: str, budget: int, processor: TrOCRProcessor, model: VisionEncoderDecoderModel, device: str, translate: Callable[[str],str], gold_translation: str, ocr_line_len: int):
-      super().__init__(input, budget, processor, model, device, ocr_line_len)
+  def __init__(self, input: str, budget: int, translate: Callable[[str],str], gold_translation: str):
+      super().__init__(input, budget)
       self.translate = translate
       self.gold_translation = gold_translation
 
@@ -323,7 +323,7 @@ class VisrepOcrObjective(TrOcrObjective):
       if candidate in self.cache:
         output = self.cache[candidate]
       else:
-        translation = self.translate(self.ocr(candidate))
+        translation = self.translate(candidate)
         output = sentence_chrf(translation, [self.gold_translation]).score
         self.cache[candidate] = output
       return output
@@ -331,7 +331,7 @@ class VisrepOcrObjective(TrOcrObjective):
 
   def differential_evolution(self, maxiter: int, popsize: int) -> Dict:
     adv_example = super().differential_evolution(maxiter, popsize)
-    adv_translation = self.translate(self.ocr(adv_example['adv_example']))
+    adv_translation = self.translate(adv_example['adv_example'])
     adv_bleu = sentence_chrf(adv_translation, [self.gold_translation]).score
     return serialize_translation(adv_translation, self.gold_translation, adv_bleu, **adv_example)
 
