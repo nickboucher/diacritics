@@ -602,9 +602,8 @@ def visrep_experiment(start_index: int, end_index: int, min_budget: int, max_bud
   label = "visrep-diacriticals"
   dataset = load_de_translation_data(start_index, end_index)
   print(f"Performing experiments against the Visual Text Translation DE->EN model for {len(dataset)} examples, from index {start_index} to {end_index}, with budgets {min_budget} to {max_budget}.")
-  device, processor, model = load_trocr(cpu)
   translate = load_visrep(checkpoint, tgt_dict, font, cpu)
-  print(f"Visual Text Translation model DE->EN configured to use device {device}.")
+  print(f"Visual Text Translation model DE->EN configured to use device {'CPU' if cpu else 'GPU'}.")
   budgets = range(min_budget, max_budget+1)
   adv_examples = create_or_load_pickle(pkl_file, label, overwrite)
   # Run experiments
@@ -615,7 +614,7 @@ def visrep_experiment(start_index: int, end_index: int, min_budget: int, max_bud
       for data in dataset:
         id = f"{data['docid']}-{data['segid']}"
         if id not in adv_examples[label][budget]:
-          objective = VisrepOcrObjective(data['german'], budget, processor, model, device, translate, data['english'], ocr_line_len)
+          objective = VisrepOcrObjective(data['german'], budget, translate, data['english'])
           adv_examples[label][budget][id] = objective.differential_evolution(maxiter, popsize)
           with open(pkl_file, 'wb') as f:
             pickle.dump(adv_examples, f)
