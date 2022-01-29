@@ -170,7 +170,7 @@ def serialize_translation(adv_translation: str, gold_translation: str, adv_bleu:
   return {
     'adv_translation': adv_translation,
     'gold_translation': gold_translation,
-    'adv_bleu': adv_bleu,
+    'adv_chrf': adv_bleu,
     **base
   }
 
