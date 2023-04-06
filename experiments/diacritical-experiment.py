@@ -6,8 +6,8 @@ import numpy as np
 from abc import ABC
 from typing import Callable, List, Dict, Tuple
 from textdistance import levenshtein
-from torch import cuda, hub, device as torchdevice
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+from torch import cuda, hub, no_grad, device as torchdevice
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel, AutoTokenizer, AutoModelForQuestionAnswering
 from datasets import load_dataset
 from PIL import Image, ImageDraw, ImageFont
 from time import process_time
@@ -24,6 +24,7 @@ from fairseq import utils, tasks, checkpoint_utils, options
 from collections import namedtuple
 from fairseq_cli.generate import get_symbols_to_strip_from_output
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
+from evaluate import load
 
 # Diacritical marks supported by Arial Unicode MS
 # Full range is 768 - 879
@@ -136,6 +137,10 @@ def load_de_translation_data(start_index: int, end_index: int):
           })
   return output
 
+def load_squad_data(start_index: int, end_index: int):
+  return load_dataset('squad', split='validation') \
+    .select(range(start_index, end_index))
+
 def serialize_trocr(adv_example: str, adv_example_ocr: str, input: str, input_ocr: str, adv_generation_time: int, budget: int, maxiter: int, popsize: int, **kwargs):
   base = {
     'adv_example': adv_example,
@@ -171,6 +176,14 @@ def serialize_translation(adv_translation: str, gold_translation: str, adv_bleu:
     'adv_translation': adv_translation,
     'gold_translation': gold_translation,
     'adv_chrf': adv_bleu,
+    **base
+  }
+
+def serialize_canine(adv_answer: str, adv_f1: float, **kwargs):
+  base = serialize_trocr(**kwargs)
+  return {
+    'adv_answer': adv_answer,
+    'adv_f1': adv_f1,
     **base
   }
 
@@ -342,6 +355,41 @@ class VisrepOcrObjective(OcrObjective):
     adv_translation = self.translate(adv_example['adv_example'])
     adv_bleu = sentence_chrf(adv_translation, [self.gold_translation]).score
     return serialize_translation(adv_translation, self.gold_translation, adv_bleu, adv_example_ocr=None, input_ocr=None, **adv_example)
+
+
+class CanineObjective(OcrObjective):
+
+  def __init__(self, question: str, context: str, budget: int, answers: dict, id: str, canine, squad):
+      super().__init__(question, budget)
+      self.context = context
+      self.answers = answers
+      self.canine = canine
+      self.squad = squad
+      self.id = id
+      self.answers = answers
+      self.references= [{ 'answers': answers, 'id': id }]
+
+  def objective(self) -> Callable[[List[float]], float]:
+    ''' Tries to minimize SQuAD F1 score. '''
+    def _objective(perturbations: List[float]) -> float:
+      candidate = self.candidate(perturbations)
+      if candidate in self.cache:
+        f1 = self.cache[candidate]
+      else:
+        answer = self.canine(candidate, self.context, self.id)
+        f1 = self.squad.compute(predictions=answer, references=self.references)['f1']
+        self.cache[candidate] = f1
+      return f1
+    return _objective
+
+  def ocr(self, text: str):
+    return None # This model doesn't use OCR
+
+  def differential_evolution(self, maxiter: int, popsize: int) -> Dict:
+    adv_example = super().differential_evolution(maxiter, popsize)
+    adv_answer = self.canine(adv_example['adv_example'], self.context, self.id)
+    adv_f1 = self.squad.compute(predictions=adv_answer, references=self.references)['f1']
+    return serialize_canine(adv_answer, adv_f1, adv_example_ocr=None, input_ocr=None, **adv_example)
 
 
 def create_or_load_pickle(pkl_file: str, label: str, overwrite: bool) -> Dict:
@@ -519,6 +567,21 @@ def load_visrep(checkpoint: str, tgt_dict: str, font: str, cpu: bool) -> Callabl
       
   return translate
 
+def load_canine(cpu: bool) -> Tuple[str,any]:
+  device = 'cuda:0' if not cpu and cuda.is_available() else 'cpu'
+  tokenizer = AutoTokenizer.from_pretrained("Splend1dchan/canine-s-squad")
+  model = AutoModelForQuestionAnswering.from_pretrained("Splend1dchan/canine-s-squad").to(device)
+  def canine(question: str, context: str, id: str):
+    inputs = tokenizer(question, context, return_tensors="pt").to(device)
+    with no_grad():
+      outputs = model(**inputs)
+    answer_start_index = outputs.start_logits.argmax()
+    answer_end_index = outputs.end_logits.argmax()
+    predict_answer_tokens = inputs.input_ids[0, answer_start_index : answer_end_index + 1]
+    prediction = tokenizer.decode(predict_answer_tokens, skip_special_tokens=True)
+    return [ { 'prediction_text': prediction, 'id': id } ]
+  return canine
+
 def trocr_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, ocr_line_len: int, **kwargs):
   # Load resources
   label = "trocr-diacriticals"
@@ -628,6 +691,29 @@ def visrep_experiment(start_index: int, end_index: int, min_budget: int, max_bud
             pickle.dump(adv_examples, f)
         pbar.update(1)
 
+def canine_experiment(start_index: int, end_index: int, min_budget: int, max_budget: int, pkl_file: str, maxiter: int, popsize: int, overwrite: bool, cpu: bool, checkpoint: str, **kwargs):
+  label = "canine-diacriticals"
+  dataset = load_squad_data(start_index, end_index)
+  print(f"Performing experiments against the Canine model for {len(dataset)} examples, from index {start_index} to {end_index}, with budgets {min_budget} to {max_budget}.")
+  canine = load_canine(cpu)
+  squad = load("squad")
+  print(f"Canine model configured to use device {'CPU' if cpu else 'GPU'}.")
+  budgets = range(min_budget, max_budget+1)
+  adv_examples = create_or_load_pickle(pkl_file, label, overwrite)
+  # Run experiments
+  with tqdm(total=len(dataset)*len(budgets), desc="Adv. Examples") as pbar:
+    for budget in budgets:
+      if budget not in adv_examples[label]:
+        adv_examples[label][budget] = {}
+      for data in dataset:
+        id = data['id']
+        if id not in adv_examples[label][budget]:
+          objective = CanineObjective(data['question'], data['context'], budget, data['answers'], id, canine, squad)
+          adv_examples[label][budget][id] = objective.differential_evolution(maxiter, popsize)
+          with open(pkl_file, 'wb') as f:
+            pickle.dump(adv_examples, f)
+        pbar.update(1)
+
 if __name__ == '__main__':
 
   parser = ArgumentParser(description='Adversarial NLP Experiments.')
@@ -636,6 +722,7 @@ if __name__ == '__main__':
   model.add_argument('-x', '--toxic', action='store_true', help="Target IBM's MaxToxic model defended by TrOCR.")
   model.add_argument('-r', '--translation', action='store_true', help="Target Facebook Fairseq's WMT 14 EN->FR translation model defended by TrOCR.")
   model.add_argument('-v', '--visrep', action='store_true', help="Target Visual Text Translation DE->EN model.")
+  model.add_argument('-C', '--canine', action='store_true', help="Target Canine model.")
   parser.add_argument('-c', '--cpu', action='store_true', help="Use CPU for ML inference instead of CUDA.")
   parser.add_argument('pkl_file', help="File to contain Python pickled output.")
   parser.add_argument('-s', '--start-index', type=int, default=0, help="The lower bound of the items in the dataset to use in experiments.")
@@ -665,3 +752,6 @@ if __name__ == '__main__':
 
   elif args.visrep:
     visrep_experiment(**vars(args))
+  
+  elif args.canine:
+    canine_experiment(**vars(args))
