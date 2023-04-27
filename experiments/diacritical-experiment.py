@@ -151,14 +151,14 @@ def serialize_trocr(adv_example: str, adv_example_ocr: str, input: str, input_oc
     'popsize': popsize
   }
   if input_ocr is not None and adv_example_ocr is not None:
-    base = sorted({
+    base = {
       'adv_example_ocr': adv_example_ocr,
       'adv_example_ocr_input_distance': distance(adv_example_ocr, input),
       'adv_example_ocr_adv_distance': distance(adv_example_ocr, adv_example),
       'input_ocr': input_ocr,
       'input_ocr_input_distance': distance(input_ocr, input),
       **base
-    })
+    }
   return base
 
 def serialize_toxic(adv_label_toxic: bool, gold_label_toxic: bool, adv_logit_toxic: float, **kwargs):
